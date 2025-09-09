@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webhook Dashboard - Vercel</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        .status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+        .status.connected { background: #4caf50; color: white; }
+        .status.disconnected { background: #f44336; color: white; }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #03dac6;
+            margin-bottom: 30px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #333;
+        }
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #03dac6;
+        }
+        .stat-label {
+            color: #a0a0a0;
+            font-size: 0.9rem;
+        }
+        .test-section {
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #333;
+            margin-bottom: 30px;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #03dac6;
+        }
+        button {
+            background: #03dac6;
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #02b8a3;
+        }
+        .log-section {
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #333;
+        }
+        .log-entry {
+            background: #2a2a2a;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border-left: 3px solid #03dac6;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+        .log-timestamp {
+            color: #888;
+            font-size: 0.8rem;
+        }
+        #result {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 10px;
+            border: 1px solid #444;
+            font-family: 'Courier New', monospace;
+            min-height: 50px;
+        }
+    </style>
+</head>
+<body>
+    <div class="status" id="status">Bağlantı Kontrol Ediliyor...</div>
+    
+    <div class="container">
+        <h1>Webhook Dashboard</h1>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="totalMessages">0</div>
+                <div class="stat-label">Toplam Mesaj</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="recentMessages">0</div>
+                <div class="stat-label">Son 5 Dakika</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="lastUpdate">-</div>
+                <div class="stat-label">Son Güncelleme</div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>API Test</h3>
+            <button onclick="testWebhook('Instagram', 'test01', 'Merhaba', 'Selam!')">Instagram Test</button>
+            <button onclick="testWebhook('WhatsApp', 'test02', 'Hello', 'Hi there!')">WhatsApp Test</button>
+            <button onclick="testWebhook('Telegram', 'test03', 'Test message', 'Test response!')">Telegram Test</button>
+            <button onclick="clearLogs()">Logları Temizle</button>
+            
+            <div id="result"></div>
+        </div>
+
+        <div class="log-section">
+            <h3>Webhook Logları (Son 5 saniyede güncellenir)</h3>
+            <div id="logs"></div>
+        </div>
+    </div>
+
+    <script>
+        let logs = [];
+        let processedMessages = new Set();
+
+        // Status güncelle
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.className = 'status connected';
+                status.textContent = 'Sistem Aktif';
+            } else {
+                status.className = 'status disconnected';
+                status.textContent = 'Bağlantı Sorunu';
+            }
+        }
+
+        // İstatistikleri güncelle
+        function updateStats() {
+            const totalMessages = logs.filter(log => log.type === 'webhook' || log.type === 'success').length;
+            const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+            const recentMessages = logs.filter(log => {
+                if (!log.timestamp) return false;
+                const logTime = new Date(log.timestamp.replace(/(\d{2})\.(\d{2})\.(\d{4})/, '$3-$2-$1')).getTime();
+                return logTime > fiveMinutesAgo && (log.type === 'webhook' || log.type === 'success');
+            }).length;
+            
+            document.getElementById('totalMessages').textContent = totalMessages;
+            document.getElementById('recentMessages').textContent = recentMessages;
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('tr-TR');
+        }
+
+        // Log ekle
+        function addLog(message, type = 'info', id = null) {
+            const timestamp = new Date().toLocaleString('tr-TR');
+            const logEntry = {
+                id: id || Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                timestamp,
+                message,
+                type
+            };
+            
+            logs.unshift(logEntry);
+            if (logs.length > 50) logs.pop();
+            
+            renderLogs();
+            updateStats();
+        }
+
+        // External webhook mesajlarını kontrol et
+        async function fetchMessages() {
+            try {
+                const response = await fetch('/api/messages');
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Yeni mesajları loglar kısmına ekle
+                    if (data.messages && Array.isArray(data.messages)) {
+                        data.messages.forEach(msg => {
+                            if (msg.id && !processedMessages.has(msg.id)) {
+                                processedMessages.add(msg.id);
+                                const logMessage = `${msg.platform || 'Unknown'} - ${msg['user-id'] || 'Unknown'}: "${msg['user-message'] || ''}" → "${msg['agent-message'] || ''}" [${msg.source || 'external'}]`;
+                                addLog(logMessage, 'webhook', msg.id);
+                            }
+                        });
+                    }
+                    
+                    updateStatus(true);
+                } else {
+                    console.log('Messages API not available yet');
+                }
+            } catch (error) {
+                console.error('Failed to fetch messages:', error);
+                // Don't update status to disconnected for this error - might be normal if messages API is not deployed yet
+            }
+        }
+
+        // Logları render et
+        function renderLogs() {
+            const logsDiv = document.getElementById('logs');
+            logsDiv.innerHTML = logs.map(log => {
+                const typeColor = log.type === 'webhook' ? '#E4405F' : 
+                                 log.type === 'success' ? '#4caf50' : 
+                                 log.type === 'error' ? '#f44336' : '#03dac6';
+                const icon = log.type === 'webhook' ? '📡' : 
+                            log.type === 'success' ? '✅' : 
+                            log.type === 'error' ? '❌' : 'ℹ️';
+                return `
+                    <div class="log-entry" style="border-left-color: ${typeColor}">
+                        <div class="log-timestamp">${log.timestamp} ${icon}</div>
+                        <div>${log.message}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Webhook test
+        async function testWebhook(platform, userId, userMessage, agentMessage) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Test gönderiliyor...';
+
+            try {
+                const response = await fetch('/api/webhook', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        platform: platform,
+                        'user-id': userId,
+                        'user-message': userMessage,
+                        'agent-message': agentMessage,
+                        timestamp: new Date().toISOString(),
+                        source: 'dashboard-test',
+                        test: true
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `<span style="color: #4caf50;">✅ Başarılı:</span><br>${JSON.stringify(result, null, 2)}`;
+                    addLog(`${platform} test mesajı gönderildi: ${userMessage} → ${agentMessage}`, 'success');
+                    updateStatus(true);
+                } else {
+                    resultDiv.innerHTML = `<span style="color: #f44336;">❌ Hata:</span><br>${JSON.stringify(result, null, 2)}`;
+                    addLog(`Test hatası: ${result.error || 'Bilinmeyen hata'}`, 'error');
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span style="color: #f44336;">❌ Bağlantı Hatası:</span><br>${error.message}`;
+                addLog(`Bağlantı hatası: ${error.message}`, 'error');
+                updateStatus(false);
+            }
+        }
+
+        // API endpoint'ini test et
+        async function checkAPIHealth() {
+            try {
+                const response = await fetch('/api/webhook', {
+                    method: 'GET' // Bu 405 döndürmeli ama endpoint'in çalıştığını gösterir
+                });
+                updateStatus(true);
+            } catch (error) {
+                updateStatus(false);
+            }
+        }
+
+        // Logları temizle
+        function clearLogs() {
+            logs = [];
+            processedMessages.clear();
+            renderLogs();
+            updateStats();
+            document.getElementById('result').innerHTML = 'Loglar temizlendi.';
+        }
+
+        // Sayfa yüklendiğinde
+        document.addEventListener('DOMContentLoaded', () => {
+            addLog('Dashboard başlatıldı', 'info');
+            updateStats();
+            checkAPIHealth();
+            
+            // İlk mesaj fetch - 2 saniye gecikme ile
+            setTimeout(fetchMessages, 2000);
+            
+            // Her 5 saniyede mesajları kontrol et
+            setInterval(fetchMessages, 5000);
+            
+            // Her 30 saniyede health check
+            setInterval(checkAPIHealth, 30000);
+        });
+    </script>
+</body>
+</html>

@@ -1,8 +1,4 @@
-// Global değişken - basit memory storage (üretim için database kullanın)
-let messages = [];
-let eventListeners = [];
-
-export default function handler(req, res) {
+module.exports = function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -26,38 +22,37 @@ export default function handler(req, res) {
     // Timestamp ekle
     const messageWithTimestamp = {
       ...data,
-      received_at: new Date().toISOString()
+      received_at: new Date().toISOString(),
+      source: data.source || 'external'
     };
 
-    // Mesajı sakla (son 100 mesaj)
-    messages.push(messageWithTimestamp);
-    if (messages.length > 100) {
-      messages = messages.slice(-100);
-    }
+    // Messages API'ye gönder
+    const apiUrl = `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'}/api/messages`;
+    console.log(`Forwarding message to: ${apiUrl}`); // Hangi URL'e gönderildiğini logla
 
-    // Tüm SSE dinleyicilerine gönder
-    const eventData = JSON.stringify(messageWithTimestamp);
-    eventListeners.forEach(listener => {
-      try {
-        listener.res.write(`data: ${eventData}\n\n`);
-      } catch (error) {
-        console.error('Error sending to listener:', error);
-      }
+    fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(messageWithTimestamp)
+    }).catch(error => {
+      // Hata durumunda daha detaylı loglama
+      console.error('Failed to store message. Internal fetch error:', error);
     });
 
-    console.log('Webhook received:', data);
+    // Log the message
+    console.log('Webhook received:', JSON.stringify(messageWithTimestamp));
     
+    // Başarılı yanıt
     res.status(200).json({ 
       status: 'success', 
-      message: 'Webhook received and broadcasted',
-      listeners: eventListeners.length
+      message: 'Webhook received and logged',
+      timestamp: messageWithTimestamp.received_at
     });
 
   } catch (error) {
     console.error('Webhook processing error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
-}
-
-// Export etmek için helper functions
-export { messages, eventListeners };
+};
