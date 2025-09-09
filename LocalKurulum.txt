@@ -1,0 +1,4 @@
+- ngrok http 3000
+- docker stop dashboard && docker rm dashboard
+- docker build -t dashboard-app .
+- docker run -d -p 3000:3000 --name dashboard dashboard-app .

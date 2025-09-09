@@ -1,0 +1,141 @@
+GÖREV
+
+Aşağıdaki JSON akışına göre bir arayüz oluştur ve canlı veri geldikçe güncelle:
+
+{
+  "platform": "Instagram",
+  "user-id": "01",
+  "user-message": "selamün aleyküm",
+  "agent-message": "aleyküm selam",
+  "timestamp": "2025-09-08T16:15:00Z",
+  "source": "n8n",
+  "test": true
+}
+
+ARAYÜZ KURALLARI
+
+Platform Sekmeleri
+
+Üstte sekme çubuğu olsun; ortalı ve büyük (kolay tıklanabilir).
+
+Sekme başlıkları: Instagram, WhatsApp, Telegram, vb. (platform değerine göre dinamik).
+
+Aktif sekme, gelen kaydın platform alanına göre otomatik seçilebilsin.
+
+Kullanıcı Alanları (Sol Sütun)
+
+Her platform sekmesinin içinde, sol tarafta bir sütunda kullanıcı alanları (kart/list) alt alta dizilsin.
+
+Ana anahtar: platform + user-id.
+
+Eğer aynı platformda aynı user-id tekrar gelirse yeni alan oluşturma; mevcut kullanıcı alanına ekle.
+
+Farklı user-id geldiyse yeni kullanıcı alanı oluştur ve listeye en üste ekle (en son aktif kullanıcı üstte görünsün).
+
+Mesaj Panosu (Orta/ Sağ)
+
+Sol sütunda seçili kullanıcıya ait mesaj akışını göster.
+
+user-message kullanıcıdan, agent-message ajandan gelen mesaj olarak iki tarafta balonlar şeklinde (solda kullanıcı, sağda ajan).
+
+Mesajları timestamp’e göre artan sırada göster; aynı saniyede gelenleri eklenme sırasına göre.
+
+Durum/Meta
+
+timestamp ISO 8601 formatında okunabilir hale dönüştürülsün (yerel saat dilimine göre).
+
+source bilgisini (örn. n8n) her mesaj balonunda küçük gri metin olarak alt satıra koy.
+
+test === true ise kullanıcı alanı başlığında küçük bir TEST rozeti göster.
+
+Stil ve Kullanılabilirlik
+
+Sekmeler: ortalanmış, büyük puntolu; aktif sekme belirgin (kalın + alt çizgi).
+
+Sol sütun genişliği sabit; mesaj alanı esneyebilir.
+
+Çok mesajda sanal liste/scroll performansı.
+
+Koyu/açık tema uyumlu.
+
+DAVRANIŞ KURALLARI (AKIŞ)
+
+Yeni kayıt geldiğinde:
+
+İlgili platform sekmesini aktif et (yoksa oluştur).
+
+O sekmede user-id için bir alan var mı kontrol et.
+
+Varsa: mevcut alana mesajı ekle.
+
+Yoksa: yeni kullanıcı alanı oluştur, sol sütuna en üste ekle, ardından mesajı ekle.
+
+Mesaj akışında hem user-message hem agent-message doluysa ikisini de sırayla ekle.
+
+Boş olan alanları yoksay (ör. agent-message yoksa yalnızca user-message ekle).
+
+Aynı mesajın tekrar eklenmesini önlemek için şu benzersiz anahtarı kullan:
+hash(platform, user-id, user-message, agent-message, timestamp)
+(Geldiyse atla.)
+
+
+type Message = {
+  id: string;           // hash composite key
+  from: "user" | "agent";
+  text: string;
+  timestamp: string;    // ISO
+  source?: string;
+  test?: boolean;
+};
+
+type UserThread = {
+  platform: string;     // Instagram, WhatsApp, ...
+  userId: string;       // "01"
+  displayName?: string; // varsa
+  messages: Message[];
+  lastUpdated: string;  // ISO
+};
+
+type State = {
+  tabs: Record<string, { // key: platform
+    users: Record<string, UserThread>; // key: user-id
+    order: string[];    // user-id sırası (en son güncellenen en üstte)
+  }>;
+  activePlatform: string;
+  activeUserId?: string;
+};
+
+
+KENAR DURUMLARI
+
+platform bilinmiyorsa kaydı yoksay ve logla.
+
+user-id yoksa “unknown-{random}” üret ve alanı öyle oluştur.
+
+Aynı anda hem user hem agent mesajı geldiyse tek timestamp ile iki ayrı balon.
+
+Çok uzun mesajlarda satır kaydırma ve kopyalanabilir alan.
+
+KABUL KRİTERLERİ
+
+Sekme çubuğu orta hizalı ve büyütülmüş görünümde.
+
+Aynı platform + aynı user-id için yeni alan açılmıyor, mevcut alan güncelleniyor.
+
+Farklı user-id geldiğinde yeni alan sol sütunda en üste ekleniyor.
+
+Mesajlar zaman sırasına göre; tekrarlar engelleniyor.
+
+test === true → TEST rozeti görünüyor.
+
+source ve yerelleştirilmiş saat her mesajda görünüyor.
+
+ÖRNEK KULLANIM
+
+Girdi 1 (Instagram / 01): kullanıcı alanı oluşur, mesaj(lar) eklenir, sekme Instagram aktif.
+
+Girdi 2 (Instagram / 01): aynı alana yeni mesaj eklenir; kullanıcı alanı en üste taşınır.
+
+Girdi 3 (Instagram / 02): yeni kullanıcı alanı oluşur; sol sütunda 02 üstte, 01 altta görünür.
+
+Girdi 4 (WhatsApp / 05): WhatsApp sekmesi oluşur; 05 için alan açılır.

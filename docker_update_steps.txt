@@ -1,0 +1,13 @@
+Docker Konteynerini Güncelleme Adımları
+
+Uygulama kodunda (index.html gibi) bir değişiklik yaptıktan sonra,
+değişikliklerin görünür olması için aşağıdaki adımları izleyin:
+
+1. Mevcut Konteyneri Durdur ve Kaldır:
+docker stop dashboard && docker rm dashboard
+
+2. İmajı Yeniden Oluştur (Kodun yeni haliyle):
+docker build -t dashboard-app .
+
+3. Yeni Konteyneri Başlat:
+docker run -d -p 3000:3000 --name dashboard dashboard-app
